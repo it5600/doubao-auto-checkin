@@ -77,10 +77,15 @@ def main():
           for n, v in (p.split("=", 1) for p in cookie_str.split(";") if "=" in p)]
 
     checkin = {}
+    launch_kwargs = dict(headless=True,
+        args=["--no-sandbox","--disable-dev-shm-usage","--use-gl=angle",
+              "--use-angle=swiftshader","--enable-unsafe-swiftshader","--lang=zh-CN"])
+    # 若环境指定了浏览器路径（如服务器自带 /opt/browser/chrome）则用它，否则用 patchright 自带 chromium
+    chrome_path = os.environ.get("CHROME_PATH", "").strip()
+    if chrome_path:
+        launch_kwargs["executable_path"] = chrome_path
     with sync_playwright() as p:
-        b = p.chromium.launch(headless=True,
-            args=["--no-sandbox","--disable-dev-shm-usage","--use-gl=angle",
-                  "--use-angle=swiftshader","--enable-unsafe-swiftshader","--lang=zh-CN"])
+        b = p.chromium.launch(**launch_kwargs)
         ctx = b.new_context(user_agent=UA, viewport={"width":1536,"height":864},
             device_scale_factor=1.25, locale="zh-CN", timezone_id="Asia/Shanghai")
         ctx.add_init_script(EXTRA_JS)
@@ -111,8 +116,16 @@ return {found:true,rewarded:!!c.querySelector('.rewarded-nPpEuG'),btn:b?b.innerT
 
         if state.get("found") and not state.get("rewarded"):
             log("未签，点击签到按钮")
-            pg.click('[data-reward-code="daily_signin"] button')
-            time.sleep(10)
+            try:
+                with pg.expect_response(lambda r: "landing/checkin" in r.url, timeout=20000) as ri:
+                    pg.click('[data-reward-code="daily_signin"] button')
+                resp = ri.value
+                body = resp.text()[:300]
+                log(f"checkin HTTP {resp.status}: {body}")
+                checkin["captured"] = body
+            except Exception as e:
+                log(f"等待 checkin 响应超时/异常: {e}（以 detail 复核为准）")
+            time.sleep(5)
 
         # 自动点击所有「领取」按钮（里程碑/待领奖励）
         try:
