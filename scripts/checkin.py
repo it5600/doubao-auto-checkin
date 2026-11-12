@@ -17,12 +17,13 @@ Cookie 来源优先级：
 import json, time, urllib.request, sys, os, datetime, traceback, random
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))  # 脚本同目录：日志/截图/config 统一放这
 # 用户级 site-packages（patchright 装在 ~/.local 时兜底）
 sys.path.insert(0, os.path.expanduser("~/.local/lib/python3.12/site-packages"))
 from patchright.sync_api import sync_playwright
 
-CONFIG = os.path.join(BASE, "config.json")
-LOG = os.path.join(BASE, "checkin.log")
+CONFIG = os.path.join(HERE, "config.json")
+LOG = os.path.join(HERE, "checkin.log")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/147.0.7727.149 Safari/537.36 SamanthaDoubaoWork/2.34.12")
 TARGET = "https://www.doubao.com/pc/agent-explore"
@@ -57,12 +58,11 @@ def load_cookie():
     ck = os.environ.get("DOUBAO_COOKIE", "").strip()
     if ck:
         return ck
-    # 依次找：项目根 config.json、脚本同目录 config.json
-    here = os.path.dirname(os.path.abspath(__file__))
-    for cand in (os.path.join(BASE, "config.json"), os.path.join(here, "config.json")):
+    # 脚本同目录 config.json，再退到项目根
+    for cand in (CONFIG, os.path.join(BASE, "config.json")):
         if os.path.exists(cand):
             return json.load(open(cand))["cookie"]
-    sys.exit("未找到 Cookie：请 export DOUBAO_COOKIE=... 或在项目根目录放 config.json")
+    sys.exit("未找到 Cookie：请 export DOUBAO_COOKIE=... 或在脚本同目录放 config.json")
 
 def detail_check(cookie_str):
     req = urllib.request.Request(
@@ -111,7 +111,7 @@ def main():
         try:
             pg.goto(TARGET, wait_until="networkidle", timeout=40000)
         except Exception as e:
-            pg.screenshot(path=os.path.join(BASE, f"error_{datetime.datetime.now():%H%M%S}.png"))
+            pg.screenshot(path=os.path.join(HERE, f"error_{datetime.datetime.now():%H%M%S}.png"))
             log(f"页面加载失败: {e}")
             raise
 
@@ -185,12 +185,20 @@ return out;})()""")
     code = d.get("code")
     log(f"detail code={code}")
     if code != 0:
-        log(f"登录态异常 code={code} msg={d.get('message','')}")
+        log(f"登录态或接口异常 code={code} msg={d.get('message','')}")
         return
-    for t in d.get("data",{}).get("tasks",[]):
-        if t.get("campaign_code")=="daily_signin":
-            dc=t["daily_checkin"]
-            log(f"RESULT total={d['data']['progress']['total_amount']} today={dc['checked_in_today']} continuous={dc['continuous_days']} last={dc['last_checkin_date']}")
+    data = d.get("data") or {}
+    progress = (data.get("progress") or {}).get("total_amount")
+    tasks = data.get("tasks") or []
+    found_daily = False
+    for t in tasks:
+        if t.get("campaign_code") == "daily_signin":
+            found_daily = True
+            dc = t.get("daily_checkin") or {}
+            log(f"RESULT total={progress} today={dc.get('checked_in_today')} "
+                f"continuous={dc.get('continuous_days')} last={dc.get('last_checkin_date')}")
+    if not found_daily:
+        log(f"警告：未找到 daily_signin 任务，接口返回 {json.dumps(data, ensure_ascii=False)[:300]}")
 
 if __name__=="__main__":
     try:
