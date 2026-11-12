@@ -57,8 +57,11 @@ def load_cookie():
     ck = os.environ.get("DOUBAO_COOKIE", "").strip()
     if ck:
         return ck
-    if os.path.exists(CONFIG):
-        return json.load(open(CONFIG))["cookie"]
+    # 依次找：项目根 config.json、脚本同目录 config.json
+    here = os.path.dirname(os.path.abspath(__file__))
+    for cand in (os.path.join(BASE, "config.json"), os.path.join(here, "config.json")):
+        if os.path.exists(cand):
+            return json.load(open(cand))["cookie"]
     sys.exit("未找到 Cookie：请 export DOUBAO_COOKIE=... 或在项目根目录放 config.json")
 
 def detail_check(cookie_str):
@@ -77,13 +80,19 @@ def main():
           for n, v in (p.split("=", 1) for p in cookie_str.split(";") if "=" in p)]
 
     checkin = {}
+    # 浏览器路径：环境变量优先；否则探测常见位置（如服务器自带 /opt/browser/chrome）
+    chrome_path = os.environ.get("CHROME_PATH", "").strip()
+    if not chrome_path:
+        for cand in ("/opt/browser/chrome", "/usr/bin/google-chrome", "/usr/bin/chromium"):
+            if os.path.exists(cand):
+                chrome_path = cand
+                break
     launch_kwargs = dict(headless=True,
         args=["--no-sandbox","--disable-dev-shm-usage","--use-gl=angle",
               "--use-angle=swiftshader","--enable-unsafe-swiftshader","--lang=zh-CN"])
-    # 若环境指定了浏览器路径（如服务器自带 /opt/browser/chrome）则用它，否则用 patchright 自带 chromium
-    chrome_path = os.environ.get("CHROME_PATH", "").strip()
     if chrome_path:
         launch_kwargs["executable_path"] = chrome_path
+        log(f"使用浏览器: {chrome_path}")
     with sync_playwright() as p:
         b = p.chromium.launch(**launch_kwargs)
         ctx = b.new_context(user_agent=UA, viewport={"width":1536,"height":864},
