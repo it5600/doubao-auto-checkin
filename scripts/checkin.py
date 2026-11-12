@@ -118,7 +118,10 @@ def main():
                 break
     launch_kwargs = dict(headless=True,
         args=["--no-sandbox","--disable-dev-shm-usage","--use-gl=angle",
-              "--use-angle=swiftshader","--enable-unsafe-swiftshader","--lang=zh-CN"])
+              "--use-angle=swiftshader","--enable-unsafe-swiftshader","--lang=zh-CN",
+              "--disable-blink-features=AutomationControlled",  # 隐藏自动化控制标记（社区标准）
+              "--no-first-run","--no-default-browser-check",
+              "--disable-background-networking","--disable-sync"])
     if chrome_path:
         launch_kwargs["executable_path"] = chrome_path
         log(f"使用浏览器: {chrome_path}")
