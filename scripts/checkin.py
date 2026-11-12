@@ -14,7 +14,7 @@ Cookie 来源优先级：
   export DOUBAO_COOKIE="sid_guard=...; sessionid=..."
   python3 scripts/checkin.py
 """
-import json, time, urllib.request, sys, os, datetime, traceback
+import json, time, urllib.request, sys, os, datetime, traceback, random
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 用户级 site-packages（patchright 装在 ~/.local 时兜底）
@@ -110,11 +110,28 @@ def main():
 
         try:
             pg.goto(TARGET, wait_until="networkidle", timeout=40000)
-            time.sleep(3)
         except Exception as e:
             pg.screenshot(path=os.path.join(BASE, f"error_{datetime.datetime.now():%H%M%S}.png"))
             log(f"页面加载失败: {e}")
             raise
+
+        # —— 真人行为模拟：不要瞬间点中，先像人一样浏览、移动鼠标、滚动 ——
+        def human_pause(a=0.6, b=1.8):
+            time.sleep(random.uniform(a, b))
+
+        human_pause(2.0, 4.0)  # 打开页面后停留阅读
+        try:
+            # 鼠标在视窗内随机游走 2-3 次
+            for _ in range(random.randint(2, 3)):
+                pg.mouse.move(random.uniform(200, 1200), random.uniform(200, 700),
+                              steps=random.randint(10, 25))
+                human_pause()
+            # 小幅滚动，模拟浏览页面
+            pg.mouse.wheel(0, random.randint(150, 350))
+            human_pause(1.0, 2.0)
+            pg.mouse.wheel(0, -random.randint(80, 180))
+        except Exception as e:
+            log(f"真人行为模拟跳过: {e}")
 
         state = pg.evaluate(r"""
 (()=>{const c=document.querySelector('[data-reward-code="daily_signin"]');
@@ -126,15 +143,23 @@ return {found:true,rewarded:!!c.querySelector('.rewarded-nPpEuG'),btn:b?b.innerT
         if state.get("found") and not state.get("rewarded"):
             log("未签，点击签到按钮")
             try:
+                btn = pg.locator('[data-reward-code="daily_signin"] button').first
+                btn.hover()                       # 先悬停，再停一拍
+                box = btn.bounding_box()
+                if box:
+                    pg.mouse.move(box["x"] + box["width"]*random.uniform(0.3,0.7),
+                                  box["y"] + box["height"]*random.uniform(0.3,0.7),
+                                  steps=random.randint(8, 18))
+                human_pause(0.3, 0.9)             # 悬停后短暂停顿再点
                 with pg.expect_response(lambda r: "landing/checkin" in r.url, timeout=20000) as ri:
-                    pg.click('[data-reward-code="daily_signin"] button')
+                    btn.click()
                 resp = ri.value
                 body = resp.text()[:300]
                 log(f"checkin HTTP {resp.status}: {body}")
                 checkin["captured"] = body
             except Exception as e:
                 log(f"等待 checkin 响应超时/异常: {e}（以 detail 复核为准）")
-            time.sleep(5)
+            human_pause(4.0, 7.0)
 
         # 自动点击所有「领取」按钮（里程碑/待领奖励）
         try:
