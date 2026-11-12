@@ -19,8 +19,10 @@ from urllib.parse import unquote
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.dirname(os.path.abspath(__file__))  # 脚本同目录：日志/截图/config 统一放这
-# 用户级 site-packages（patchright 装在 ~/.local 时兜底）
-sys.path.insert(0, os.path.expanduser("~/.local/lib/python3.12/site-packages"))
+# 用户级 site-packages（patchright 用 --user 装在 ~/.local 时兜底），动态匹配任意 Python 版本
+import glob
+for _sp in glob.glob(os.path.expanduser("~/.local/lib/python3.*/site-packages")):
+    sys.path.insert(0, _sp)
 from patchright.sync_api import sync_playwright
 
 CONFIG = os.path.join(HERE, "config.json")
