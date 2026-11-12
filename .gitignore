@@ -1,0 +1,4 @@
+config.json
+checkin.log
+error_*.png
+__pycache__/
