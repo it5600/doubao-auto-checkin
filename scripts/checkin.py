@@ -15,6 +15,7 @@ Cookie 来源优先级：
   python3 scripts/checkin.py
 """
 import json, time, urllib.request, sys, os, datetime, traceback, random
+from urllib.parse import unquote
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.dirname(os.path.abspath(__file__))  # 脚本同目录：日志/截图/config 统一放这
@@ -49,10 +50,37 @@ def log(msg):
     line = f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] {msg}"
     print(line)
     try:
+        # 简单轮转：日志超过 2000 行时裁掉一半
+        if os.path.exists(LOG) and os.path.getsize(LOG) > 200*1024:
+            with open(LOG) as f:
+                lines = f.readlines()
+            with open(LOG, "w") as f:
+                f.writelines(lines[-1000:])
         with open(LOG, "a") as f:
             f.write(line + "\n")
     except Exception:
         pass
+
+def check_cookie_expiry(cookie_str):
+    """解析 sid_guard：格式 sessionid|签发unix时间戳|有效期秒|过期字符串，
+    用 签发时间戳+有效期秒 算过期时间，剩余 <=7 天预警。"""
+    for part in cookie_str.split(";"):
+        if part.strip().startswith("sid_guard="):
+            val = unquote(part.split("=", 1)[1].strip())
+            seg = val.split("|")
+            if len(seg) >= 3:
+                try:
+                    issued = int(seg[1]); ttl = int(seg[2])
+                    exp = datetime.datetime.fromtimestamp(issued + ttl, datetime.timezone.utc)
+                    now = datetime.datetime.now(datetime.timezone.utc)
+                    days = (exp - now).days
+                    if days <= 7:
+                        log(f"⚠️ Cookie 将在 {days} 天后过期（{exp:%Y-%m-%d}），请及时重新登录更新！")
+                    else:
+                        log(f"Cookie 有效期至 {exp:%Y-%m-%d}（剩 {days} 天）")
+                except Exception as e:
+                    log(f"Cookie 过期时间解析失败: {e}")
+            return
 
 def load_cookie():
     ck = os.environ.get("DOUBAO_COOKIE", "").strip()
@@ -76,6 +104,7 @@ def detail_check(cookie_str):
 
 def main():
     cookie_str = load_cookie()
+    check_cookie_expiry(cookie_str)
     ck = [{"name": n.strip(), "value": v.strip(), "domain": ".doubao.com", "path": "/"}
           for n, v in (p.split("=", 1) for p in cookie_str.split(";") if "=" in p)]
 
@@ -109,10 +138,12 @@ def main():
         pg.on("response", on_response)
 
         try:
-            pg.goto(TARGET, wait_until="networkidle", timeout=40000)
+            pg.goto(TARGET, wait_until="domcontentloaded", timeout=40000)
+            # 显式等签到卡片渲染出来，而不是盲等 networkidle
+            pg.wait_for_selector('[data-reward-code="daily_signin"]', timeout=25000)
         except Exception as e:
             pg.screenshot(path=os.path.join(HERE, f"error_{datetime.datetime.now():%H%M%S}.png"))
-            log(f"页面加载失败: {e}")
+            log(f"页面加载/卡片渲染失败: {e}")
             raise
 
         # —— 真人行为模拟：不要瞬间点中，先像人一样浏览、移动鼠标、滚动 ——
