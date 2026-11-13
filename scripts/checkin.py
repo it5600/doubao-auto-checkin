@@ -144,6 +144,12 @@ def main():
 
         try:
             pg.goto(TARGET, wait_until="domcontentloaded", timeout=40000)
+            # 先识别拦截页/登录页，明确报错而不是等卡片超时
+            body = pg.locator("body").inner_text(timeout=8000)
+            if "仅支持" in body and ("电脑版" in body or "客户端" in body):
+                raise RuntimeError("页面被拦截：提示仅支持电脑版（UA/通道不对）")
+            if "扫码登录" in body or "登录后参与" in body or "登录" == body.strip()[:2]:
+                raise RuntimeError("登录态失效：页面跳转到登录页，请更新 Cookie")
             # 显式等签到卡片渲染出来，而不是盲等 networkidle
             pg.wait_for_selector('[data-reward-code="daily_signin"]', timeout=25000)
         except Exception as e:
